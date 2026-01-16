@@ -41,7 +41,12 @@ jobs:
     # 5️⃣ Terraform Apply (EKS CREATED HERE)
     - name: Terraform Apply
       working-directory: terraform
+      env:
+        TF_VAR_app_name: ${{ github.event.repository.name }}
+        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+        TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
       run: terraform apply -auto-approve
+
 
     # 6️⃣ Configure kubectl for EKS
     - name: Configure kubectl
