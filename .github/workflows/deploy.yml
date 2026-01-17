@@ -69,8 +69,11 @@ jobs:
         docker push ${{ secrets.ECR_URL }}/$APP_NAME:latest
 
     - name: Inject runtime values
+      env:
+        DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
+        APP_NAME: ${{ github.event.repository.name }}
+        IMAGE_URI: ${{ secrets.ECR_URL }}/${{ github.event.repository.name }}:latest
       run: |
-        export IMAGE_URI=${{ secrets.ECR_URL }}/$APP_NAME:latest
         chmod +x scripts/inject.sh
         ./scripts/inject.sh
 
