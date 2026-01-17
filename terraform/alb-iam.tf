@@ -12,7 +12,7 @@ resource "aws_iam_role" "alb_controller" {
       {
         Effect = "Allow"
         Principal = {
-          Federated = data.aws_iam_openid_connect_provider.eks.arn
+          Federated = aws_iam_openid_connect_provider.eks.arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
@@ -20,7 +20,7 @@ resource "aws_iam_role" "alb_controller" {
             format(
               "%s:sub",
               replace(
-                data.aws_iam_openid_connect_provider.eks.url,
+                aws_iam_openid_connect_provider.eks.url,
                 "https://",
                 ""
               )
