@@ -32,37 +32,86 @@ jobs:
       with:
         terraform_version: 1.5.7
 
-    - name: Terraform Init
+    # =========================
+    # 🔹 PHASE 1 — AWS + EKS + NODES
+    # =========================
+    - name: Terraform Init (Phase 1)
       working-directory: terraform
       run: terraform init
 
-    - name: Cleanup legacy aws-auth from state (safe)
-      working-directory: terraform
-      run: |
-        terraform state rm helm_release.alb_controller || true
-
-    # Configure kubectl BEFORE helm cleanup
-    - name: Configure kubectl
-      run: |
-        aws eks update-kubeconfig \
-          --name $CLUSTER_NAME \
-          --region ap-south-1
-
-    # 🔥 MUST be BEFORE terraform apply
-    - name: Cleanup existing ALB Controller Helm release (cluster-side)
-      run: |
-        helm uninstall aws-load-balancer-controller -n kube-system || true
-
-
-    # ✅ SINGLE, FULL APPLY (SAFE NOW)
-    - name: Terraform Apply
+    - name: Terraform Apply (Phase 1 — Infra)
       working-directory: terraform
       env:
         TF_VAR_app_name: ${{ github.event.repository.name }}
         TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
         TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
         TF_VAR_ci_role_arn: ${{ secrets.AWS_ROLE_ARN }}
-      run: terraform apply -auto-approve
+      run: |
+        terraform apply -auto-approve \
+          -target=aws_vpc.main \
+          -target=aws_subnet.public \
+          -target=aws_internet_gateway.igw \
+          -target=aws_route_table.public \
+          -target=aws_route_table_association.public \
+          -target=aws_iam_role.eks_cluster_role \
+          -target=aws_iam_role.eks_node_role \
+          -target=aws_iam_role_policy_attachment.eks_cluster_policy \
+          -target=aws_iam_role_policy_attachment.node_policy_1 \
+          -target=aws_iam_role_policy_attachment.node_policy_2 \
+          -target=aws_iam_role_policy_attachment.node_policy_3 \
+          -target=aws_eks_cluster.cluster \
+          -target=aws_eks_node_group.nodes
+
+    # =========================
+    # 🔑 kubectl (MUST BE HERE)
+    # =========================
+    - name: Configure kubectl
+      run: |
+        aws eks update-kubeconfig \
+          --name $CLUSTER_NAME \
+          --region ap-south-1
+
+    # =========================
+    # 🔹 PHASE 2 — RBAC (aws-auth)
+    # =========================
+    - name: Terraform Init (Phase 2)
+      working-directory: terraform
+      run: terraform init
+
+    - name: Terraform Apply (Phase 2 — aws-auth)
+      working-directory: terraform
+      env:
+        TF_VAR_app_name: ${{ github.event.repository.name }}
+        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+        TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
+        TF_VAR_ci_role_arn: ${{ secrets.AWS_ROLE_ARN }}
+      run: |
+        terraform apply -auto-approve \
+          -target=kubernetes_config_map_v1.aws_auth
+
+    # =========================
+    # 🔹 PHASE 3 — ALB Controller
+    # =========================
+    - name: Terraform Init (Phase 3)
+      working-directory: terraform
+      run: terraform init
+
+    - name: Terraform Apply (Phase 3 — ALB + Helm)
+      working-directory: terraform
+      env:
+        TF_VAR_app_name: ${{ github.event.repository.name }}
+        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+        TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
+        TF_VAR_ci_role_arn: ${{ secrets.AWS_ROLE_ARN }}
+      run: |
+        terraform apply -auto-approve \
+          -target=aws_iam_openid_connect_provider.eks \
+          -target=aws_iam_policy.alb_controller \
+          -target=aws_iam_role.alb_controller \
+          -target=aws_iam_role_policy_attachment.alb_attach \
+          -target=kubernetes_service_account_v1.alb_controller \
+          -target=helm_release.alb_controller
+
 
 
     - name: Login to Amazon ECR
