@@ -67,9 +67,15 @@ jobs:
           --region ap-south-1
 
     # 🔹 IMPORT aws-auth (ONE TIME, SAFE)
-    - name: Import aws-auth ConfigMap
+    - name: Import aws-auth ConfigMap (one-time, safe)
       working-directory: terraform
+      env:
+        TF_VAR_app_name: ${{ github.event.repository.name }}
+        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+        TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
+        TF_VAR_ci_role_arn: ${{ secrets.AWS_ROLE_ARN }}
       run: terraform import kubernetes_config_map_v1.aws_auth kube-system/aws-auth || true
+
 
     # 🔹 PHASE 2: FULL APPLY (RBAC CONVERGES)
     - name: Terraform Apply (RBAC)
