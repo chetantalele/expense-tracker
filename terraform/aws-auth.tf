@@ -1,15 +1,20 @@
-resource "kubernetes_config_map" "aws_auth" {
+resource "kubernetes_config_map_v1" "aws_auth" {
   metadata {
     name      = "aws-auth"
     namespace = "kube-system"
   }
+
+  force = true
 
   data = {
     mapRoles = yamlencode([
       {
         rolearn  = aws_iam_role.eks_node_role.arn
         username = "system:node:{{EC2PrivateDNSName}}"
-        groups   = ["system:bootstrappers", "system:nodes"]
+        groups   = [
+          "system:bootstrappers",
+          "system:nodes"
+        ]
       },
       {
         rolearn  = var.ci_role_arn
@@ -19,5 +24,7 @@ resource "kubernetes_config_map" "aws_auth" {
     ])
   }
 
-  depends_on = [aws_eks_node_group.nodes]
+  depends_on = [
+    aws_eks_node_group.nodes
+  ]
 }
