@@ -1,8 +1,7 @@
 name: Zero Touch – Deploy & Verify
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -46,7 +45,7 @@ jobs:
         kubectl cluster-info
 
     # -------------------------------------------------
-    # 4️⃣ Verify Nodes (CRITICAL)
+    # 4️⃣ Verify Nodes
     # -------------------------------------------------
     - name: Verify EKS Nodes
       run: |
@@ -106,7 +105,7 @@ jobs:
         echo "✅ Ingress exists"
 
     # -------------------------------------------------
-    # 8️⃣ Verify ALB Address Assigned
+    # 8️⃣ Verify ALB Address
     # -------------------------------------------------
     - name: Verify ALB Address
       run: |
