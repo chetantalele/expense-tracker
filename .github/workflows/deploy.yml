@@ -18,37 +18,75 @@ jobs:
       CLUSTER_NAME: zero-touch-cluster
 
     steps:
-    # =========================
-    # Checkout
-    # =========================
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    # =========================
-    # AWS Auth (OIDC)
-    # =========================
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
         aws-region: ap-south-1
 
-    # =========================
-    # Terraform
-    # =========================
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: 1.5.7
 
     # =========================
-    # PHASE 1 — AWS + EKS + Nodes
+    # BOOTSTRAP — AWS + EKS ONLY
     # =========================
     - name: Terraform Init
       working-directory: terraform
       run: terraform init
 
-    - name: Terraform Apply (Infra + RBAC + Controllers)
+    - name: Terraform Apply (AWS + EKS only)
+      working-directory: terraform
+      env:
+        TF_VAR_app_name: ${{ github.event.repository.name }}
+        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+        TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
+        TF_VAR_ci_role_arn: ${{ secrets.AWS_ROLE_ARN }}
+      run: |
+        terraform apply -auto-approve \
+          -target=aws_vpc.main \
+          -target=aws_subnet.public \
+          -target=aws_internet_gateway.igw \
+          -target=aws_route_table.public \
+          -target=aws_route_table_association.public \
+          -target=aws_iam_role.eks_cluster_role \
+          -target=aws_iam_role.eks_node_role \
+          -target=aws_iam_role_policy_attachment.eks_cluster_policy \
+          -target=aws_iam_role_policy_attachment.node_policy_1 \
+          -target=aws_iam_role_policy_attachment.node_policy_2 \
+          -target=aws_iam_role_policy_attachment.node_policy_3 \
+          -target=aws_eks_cluster.cluster \
+          -target=aws_eks_node_group.nodes
+
+    # =========================
+    # kubectl NOW works
+    # =========================
+    - name: Configure kubectl
+      run: |
+        aws eks update-kubeconfig \
+          --name $CLUSTER_NAME \
+          --region $AWS_REGION
+
+    - name: Wait for nodes
+      run: |
+        kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
+    # =========================
+    # IMPORT aws-auth SAFELY
+    # =========================
+    - name: Import aws-auth if needed
+      working-directory: terraform
+      run: |
+        terraform state show kubernetes_config_map_v1.aws_auth >/dev/null 2>&1 \
+        || terraform import kubernetes_config_map_v1.aws_auth kube-system/aws-auth
+
+    # =========================
+    # FULL APPLY (RBAC + HELM)
+    # =========================
+    - name: Terraform Apply (Full)
       working-directory: terraform
       env:
         TF_VAR_app_name: ${{ github.event.repository.name }}
@@ -58,50 +96,23 @@ jobs:
       run: terraform apply -auto-approve
 
     # =========================
-    # kubectl access (AFTER aws-auth exists)
+    # APP DEPLOY
     # =========================
-    - name: Configure kubectl
-      run: |
-        aws eks update-kubeconfig \
-          --name $CLUSTER_NAME \
-          --region $AWS_REGION
-
-    - name: Verify nodes joined cluster
-      run: kubectl get nodes
-
-    # =========================
-    # Docker + ECR
-    # =========================
-    - name: Login to Amazon ECR
+    - name: Login to ECR
       run: |
         aws ecr get-login-password --region $AWS_REGION \
         | docker login --username AWS --password-stdin ${{ secrets.ECR_URL }}
 
-    - name: Ensure ECR repository exists
-      run: |
-        aws ecr describe-repositories --repository-names $APP_NAME \
-        || aws ecr create-repository --repository-name $APP_NAME
-
-    - name: Build and Push Docker Image
+    - name: Build & Push Image
       run: |
         docker build -t $APP_NAME ./app
         docker tag $APP_NAME:latest ${{ secrets.ECR_URL }}/$APP_NAME:latest
         docker push ${{ secrets.ECR_URL }}/$APP_NAME:latest
 
-    # =========================
-    # Inject Runtime Values
-    # =========================
-    - name: Inject runtime values
-      env:
-        DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
-        APP_NAME: ${{ github.event.repository.name }}
-        IMAGE_URI: ${{ secrets.ECR_URL }}/${{ github.event.repository.name }}:latest
+    - name: Inject values
       run: |
         chmod +x scripts/inject.sh
         ./scripts/inject.sh
 
-    # =========================
-    # Deploy App
-    # =========================
     - name: Deploy to Kubernetes
       run: kubectl apply -f k8s/
