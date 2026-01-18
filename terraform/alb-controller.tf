@@ -1,3 +1,6 @@
+# -----------------------------
+# Service Account for ALB Controller (IRSA)
+# -----------------------------
 resource "kubernetes_service_account_v1" "alb_controller" {
   metadata {
     name      = "aws-load-balancer-controller"
@@ -9,6 +12,9 @@ resource "kubernetes_service_account_v1" "alb_controller" {
   }
 }
 
+# -----------------------------
+# AWS Load Balancer Controller (Helm)
+# -----------------------------
 resource "helm_release" "alb_controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
@@ -16,27 +22,34 @@ resource "helm_release" "alb_controller" {
   version    = "1.7.1"
   namespace  = "kube-system"
 
-  timeout = 600
-  wait    = true
+  create_namespace = false
 
-  set = [
-    {
-      name  = "clusterName"
-      value = aws_eks_cluster.cluster.name
-    },
-    {
-      name  = "serviceAccount.create"
-      value = "false"
-    },
-    {
-      name  = "serviceAccount.name"
-      value = kubernetes_service_account_v1.alb_controller.metadata[0].name
-    },
-    {
-      name  = "region"
-      value = "ap-south-1"
-    }
-  ]
+  timeout          = 600
+  wait             = true
+  atomic           = true
+  cleanup_on_fail  = true
+  force_update     = false
+  reuse_values     = true
+
+  set {
+    name  = "clusterName"
+    value = aws_eks_cluster.cluster.name
+  }
+
+  set {
+    name  = "region"
+    value = "ap-south-1"
+  }
+
+  set {
+    name  = "serviceAccount.create"
+    value = "false"
+  }
+
+  set {
+    name  = "serviceAccount.name"
+    value = kubernetes_service_account_v1.alb_controller.metadata[0].name
+  }
 
   depends_on = [
     aws_eks_node_group.nodes,
@@ -44,4 +57,8 @@ resource "helm_release" "alb_controller" {
     aws_iam_role_policy_attachment.alb_attach,
     kubernetes_service_account_v1.alb_controller
   ]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
