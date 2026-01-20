@@ -2,7 +2,7 @@ const express = require("express");
 const app = express();
 
 app.get("/", (_, res) => {
-  res.send("🚀 Zero-Touch DevOps Platform Live");
+  res.send("🚀 It works Baby........");
 });
 
 app.get("/health", (_, res) => res.send("OK"));

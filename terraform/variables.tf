@@ -1,5 +1,5 @@
 variable "cluster_name" {
-  default = "zero-touch-cluster"
+  default = "expense-tracker-cluster"
 }
 
 variable "app_name" {

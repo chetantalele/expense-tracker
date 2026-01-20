@@ -1,9 +1,10 @@
 terraform {
   backend "s3" {
-    bucket         = "devops-zero-touch-terraform-state"
-    key            = "eks/zero-touch/terraform.tfstate"
+    bucket         = "expense-tracker-terraform-state-devops"
+    key            = "terraform.tfstate"
     region         = "ap-south-1"
-    dynamodb_table = "terraform-locks"
+
+    dynamodb_table = "expense-tracker-terraform-locks"
     encrypt        = true
   }
 }

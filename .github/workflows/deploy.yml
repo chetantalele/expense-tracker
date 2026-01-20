@@ -73,49 +73,7 @@ jobs:
       run: |
         kubectl wait --for=condition=Ready nodes --all --timeout=300s
 
-    # =========================
-    # IMPORT aws-auth SAFELY
-    # =========================
-    - name: Import aws-auth if needed
-      working-directory: terraform
-      env:
-        TF_VAR_app_name: ${{ github.event.repository.name }}
-        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
-        TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
-        TF_VAR_ci_role_arn: ${{ secrets.AWS_ROLE_ARN }}
-      run: |
-        terraform state show kubernetes_config_map_v1.aws_auth >/dev/null 2>&1 \
-        || terraform import kubernetes_config_map_v1.aws_auth kube-system/aws-auth
-
-    # =========================
-  # Detect & Import ALB Controller (BEFORE apply)
-  # =========================
-    - name: Detect ALB Controller Helm release
-      id: alb
-      env:
-        TF_VAR_app_name: ${{ github.event.repository.name }}
-        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
-        TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
-        TF_VAR_ci_role_arn: ${{ secrets.AWS_ROLE_ARN }}
-      run: |
-        if helm list -n kube-system | grep aws-load-balancer-controller; then
-          echo "exists=true" >> $GITHUB_OUTPUT
-        else
-          echo "exists=false" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Import ALB Controller into Terraform
-      if: steps.alb.outputs.exists == 'true'
-      working-directory: terraform
-      env:
-        TF_VAR_app_name: ${{ github.event.repository.name }}
-        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
-        TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
-        TF_VAR_ci_role_arn: ${{ secrets.AWS_ROLE_ARN }}
-      run: |
-        terraform state show helm_release.alb_controller >/dev/null 2>&1 \
-        || terraform import helm_release.alb_controller kube-system/aws-load-balancer-controller  
-
+    
     # =========================
     # FULL APPLY (RBAC + HELM)
     # =========================
