@@ -38,13 +38,6 @@ jobs:
       run: terraform init
 
 
-    - name: Import IAM Roles if they exist
-      run: |
-        terraform state list | grep aws_iam_role.eks_cluster_role || \
-        terraform import aws_iam_role.eks_cluster_role eks-cluster-role
-
-        terraform state list | grep aws_iam_role.eks_node_role || \
-        terraform import aws_iam_role.eks_node_role eks-node-role
 
 
     - name: Terraform Apply (AWS + EKS only)
