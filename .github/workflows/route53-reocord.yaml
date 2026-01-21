@@ -1,4 +1,4 @@
-name: Create Route53 Record from Ingress
+name: Create Route53 Record from Ingress (Dynamic)
 
 on:
   workflow_dispatch:
@@ -9,100 +9,113 @@ permissions:
 
 env:
   AWS_REGION: ap-south-1
-  CLUSTER_NAME: zero-touch-cluster
+  CLUSTER_NAME: expense-tracker-cluster
   INGRESS_NAME: app-ingress
   INGRESS_NAMESPACE: default
-
-  # DNS CONFIG
-  DOMAIN_NAME: mytesterapp.com
-  RECORD_NAME: devops-zero-touch-platform.mytesterapp.com
 
 jobs:
   route53:
     runs-on: ubuntu-latest
 
     steps:
-    # -----------------------------------
+    # -------------------------------------------------
     # Checkout
-    # -----------------------------------
+    # -------------------------------------------------
     - uses: actions/checkout@v4
 
-    # -----------------------------------
+    # -------------------------------------------------
     # AWS Auth (OIDC)
-    # -----------------------------------
+    # -------------------------------------------------
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region: ap-south-1
+        aws-region: ${{ env.AWS_REGION }}
 
-    # -----------------------------------
+    # -------------------------------------------------
     # Install kubectl
-    # -----------------------------------
+    # -------------------------------------------------
     - name: Install kubectl
       uses: azure/setup-kubectl@v4
       with:
         version: latest
 
-    # -----------------------------------
+    # -------------------------------------------------
     # Connect to EKS
-    # -----------------------------------
+    # -------------------------------------------------
     - name: Update kubeconfig
       run: |
         aws eks update-kubeconfig \
           --name $CLUSTER_NAME \
           --region $AWS_REGION
 
-    # -----------------------------------
+    # -------------------------------------------------
     # Fetch ALB DNS from Ingress
-    # -----------------------------------
+    # -------------------------------------------------
     - name: Get ALB DNS from Ingress
-      id: alb
       run: |
         ALB_DNS=$(kubectl get ingress $INGRESS_NAME \
           -n $INGRESS_NAMESPACE \
           -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 
         if [ -z "$ALB_DNS" ]; then
-          echo "❌ ALB DNS not found yet"
+          echo "❌ ALB DNS not assigned yet"
           exit 1
         fi
 
         echo "ALB_DNS=$ALB_DNS" >> $GITHUB_ENV
         echo "✅ ALB DNS: $ALB_DNS"
 
-    # -----------------------------------
-    # Get Hosted Zone ID
-    # -----------------------------------
-    - name: Get Hosted Zone ID
+    # -------------------------------------------------
+    # Get ALB Hosted Zone ID (required for Alias)
+    # -------------------------------------------------
+    - name: Get ALB Hosted Zone ID
       run: |
-        HOSTED_ZONE_ID=$(aws route53 list-hosted-zones-by-name \
-          --dns-name $DOMAIN_NAME \
-          --query 'HostedZones[0].Id' \
-          --output text | sed 's|/hostedzone/||')
+        ALB_ZONE_ID=$(aws elbv2 describe-load-balancers \
+          --query "LoadBalancers[?DNSName=='$ALB_DNS'].CanonicalHostedZoneId" \
+          --output text)
 
-        echo "HOSTED_ZONE_ID=$HOSTED_ZONE_ID" >> $GITHUB_ENV
-        echo "✅ Hosted Zone: $HOSTED_ZONE_ID"
+        if [ -z "$ALB_ZONE_ID" ]; then
+          echo "❌ Could not determine ALB Hosted Zone ID"
+          exit 1
+        fi
 
-    # -----------------------------------
-    # Create / Update Route53 Record
-    # -----------------------------------
-    - name: Create Route53 Alias Record
+        echo "ALB_ZONE_ID=$ALB_ZONE_ID" >> $GITHUB_ENV
+        echo "✅ ALB Hosted Zone ID: $ALB_ZONE_ID"
+
+    # -------------------------------------------------
+    # Build record name dynamically
+    # -------------------------------------------------
+    - name: Build record name
+      run: |
+        DOMAIN_NAME="${{ secrets.DOMAIN_NAME }}"
+        RECORD_NAME="abcd.${DOMAIN_NAME}"
+
+        echo "DOMAIN_NAME=$DOMAIN_NAME" >> $GITHUB_ENV
+        echo "RECORD_NAME=$RECORD_NAME" >> $GITHUB_ENV
+
+        echo "✅ Record Name: $RECORD_NAME"
+
+    # -------------------------------------------------
+    # Create / Update Route53 Alias A Record
+    # -------------------------------------------------
+    - name: Create Route53 Alias A Record
       run: |
         aws route53 change-resource-record-sets \
-          --hosted-zone-id $HOSTED_ZONE_ID \
+          --hosted-zone-id ${{ secrets.HOSTED_ZONE_ID }} \
           --change-batch '{
             "Changes": [{
               "Action": "UPSERT",
               "ResourceRecordSet": {
                 "Name": "'"$RECORD_NAME"'",
-                "Type": "CNAME",
-                "TTL": 60,
-                "ResourceRecords": [{
-                  "Value": "'"$ALB_DNS"'"
-                }]
+                "Type": "A",
+                "AliasTarget": {
+                  "HostedZoneId": "'"$ALB_ZONE_ID"'",
+                  "DNSName": "'"$ALB_DNS"'",
+                  "EvaluateTargetHealth": false
+                }
               }
             }]
           }'
 
-        echo "✅ Route53 record created / updated"
+        echo "✅ Route53 record created / updated: $RECORD_NAME"
