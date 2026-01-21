@@ -89,7 +89,7 @@ jobs:
     - name: Build record name
       run: |
         DOMAIN_NAME="${{ secrets.DOMAIN_NAME }}"
-        RECORD_NAME="abcd.${DOMAIN_NAME}"
+        RECORD_NAME="${{ github.event.repository.name }}.${DOMAIN_NAME}"
 
         echo "DOMAIN_NAME=$DOMAIN_NAME" >> $GITHUB_ENV
         echo "RECORD_NAME=$RECORD_NAME" >> $GITHUB_ENV
